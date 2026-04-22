@@ -1,114 +1,88 @@
-import {
-  GetObjectCommand,
-  ListObjectsV2Command,
-  PutObjectCommand,
-  S3Client,
-  type S3ClientConfig
-} from "@aws-sdk/client-s3";
+import AWS from "aws-sdk";
+import { readLocalBackup, writeLocalBackup } from "@/lib/storage";
 
-interface S3Config {
-  region: string;
-  accessKeyId?: string;
-  secretAccessKey?: string;
-}
-
-export function createS3Client(config: S3Config) {
-  const clientConfig: S3ClientConfig = {
-    region: config.region
-  };
-
-  if (config.accessKeyId && config.secretAccessKey) {
-    clientConfig.credentials = {
-      accessKeyId: config.accessKeyId,
-      secretAccessKey: config.secretAccessKey
-    };
-  }
-
-  return new S3Client(clientConfig);
-}
-
-export async function uploadToS3(params: {
-  client: S3Client;
-  bucket: string;
-  key: string;
-  body: Buffer;
-  contentType?: string;
-}) {
-  await params.client.send(
-    new PutObjectCommand({
-      Bucket: params.bucket,
-      Key: params.key,
-      Body: params.body,
-      ContentType: params.contentType ?? "application/octet-stream"
-    })
-  );
-}
-
-async function streamToBuffer(body: unknown): Promise<Buffer> {
-  if (!body) {
-    return Buffer.alloc(0);
-  }
-
-  if (Buffer.isBuffer(body)) {
-    return body;
-  }
-
-  if (typeof body === "string") {
-    return Buffer.from(body);
-  }
-
-  if (typeof (body as { transformToByteArray?: () => Promise<Uint8Array> }).transformToByteArray === "function") {
-    const byteArray = await (
-      body as { transformToByteArray: () => Promise<Uint8Array> }
-    ).transformToByteArray();
-    return Buffer.from(byteArray);
-  }
-
-  const chunks: Buffer[] = [];
-  for await (const chunk of body as AsyncIterable<Uint8Array | Buffer>) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-
-  return Buffer.concat(chunks);
-}
-
-export async function downloadFromS3(params: {
-  client: S3Client;
-  bucket: string;
-  key: string;
-}) {
-  const response = await params.client.send(
-    new GetObjectCommand({
-      Bucket: params.bucket,
-      Key: params.key
-    })
-  );
-
-  return streamToBuffer(response.Body);
-}
-
-export async function getLatestBackupKey(params: {
-  client: S3Client;
-  bucket: string;
-  prefix: string;
-}) {
-  const response = await params.client.send(
-    new ListObjectsV2Command({
-      Bucket: params.bucket,
-      Prefix: params.prefix
-    })
-  );
-
-  const candidates = (response.Contents ?? []).filter((item) => item.Key && item.LastModified);
-  if (!candidates.length) {
+function configuredS3(): AWS.S3 | null {
+  const region = process.env.S3_REGION;
+  const bucket = process.env.S3_BUCKET;
+  if (!region || !bucket) {
     return null;
   }
 
-  candidates.sort((a, b) => {
-    const left = a.LastModified?.getTime() ?? 0;
-    const right = b.LastModified?.getTime() ?? 0;
-    return right - left;
-  });
+  const options: AWS.S3.ClientConfiguration = { region };
+  if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+    options.credentials = {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+    };
+  }
 
-  return candidates[0]?.Key ?? null;
+  return new AWS.S3(options);
+}
+
+export function hostedStorageBucket(): string | null {
+  return process.env.S3_BUCKET ?? null;
+}
+
+export async function putBackupObject(storageKey: string, body: string): Promise<void> {
+  const s3 = configuredS3();
+  const bucket = hostedStorageBucket();
+
+  if (!s3 || !bucket) {
+    await writeLocalBackup(storageKey, body);
+    return;
+  }
+
+  await s3
+    .putObject({
+      Bucket: bucket,
+      Key: storageKey,
+      Body: body,
+      ContentType: "application/json"
+    })
+    .promise();
+}
+
+export async function getBackupObject(storageKey: string): Promise<string> {
+  const s3 = configuredS3();
+  const bucket = hostedStorageBucket();
+
+  if (!s3 || !bucket) {
+    return readLocalBackup(storageKey);
+  }
+
+  const out = await s3
+    .getObject({
+      Bucket: bucket,
+      Key: storageKey
+    })
+    .promise();
+
+  if (!out.Body) {
+    throw new Error("Backup payload is empty.");
+  }
+
+  const body = out.Body as unknown;
+  if (typeof body === "string") {
+    return body;
+  }
+
+  if (Buffer.isBuffer(body)) {
+    return body.toString("utf8");
+  }
+
+  if (body instanceof Uint8Array) {
+    return Buffer.from(body).toString("utf8");
+  }
+
+  if (
+    typeof body === "object" &&
+    body !== null &&
+    "arrayBuffer" in body &&
+    typeof body.arrayBuffer === "function"
+  ) {
+    const arrayBuffer = await body.arrayBuffer();
+    return Buffer.from(arrayBuffer).toString("utf8");
+  }
+
+  throw new Error("Unsupported backup object body type.");
 }

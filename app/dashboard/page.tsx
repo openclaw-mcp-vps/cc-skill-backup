@@ -1,52 +1,44 @@
-import { cookies, headers } from "next/headers";
-import { redirect } from "next/navigation";
-
+import { cookies } from "next/headers";
 import { Dashboard } from "@/components/Dashboard";
-import { ACCESS_COOKIE_NAME, createCliToken, hasActiveSubscription, verifyToken } from "@/lib/auth";
-import { getLatestBackupForEmail } from "@/lib/data-store";
+import { authCookieNames, verifySession } from "@/lib/auth";
+import { getUserById } from "@/lib/storage";
 
-function detectBaseUrl(hostHeader: string | null, forwardedProto: string | null) {
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    return process.env.NEXT_PUBLIC_APP_URL;
-  }
-
-  const host = hostHeader ?? "localhost:3000";
-  const protocol = forwardedProto ?? (host.includes("localhost") ? "http" : "https");
-  return `${protocol}://${host}`;
-}
+export const metadata = {
+  title: "Dashboard | CC Skill Backup",
+  description: "Manage encrypted Claude Code backups and restore access."
+};
 
 export default async function DashboardPage() {
   const cookieStore = await cookies();
-  const token = cookieStore.get(ACCESS_COOKIE_NAME)?.value;
+  const token = cookieStore.get(authCookieNames.session)?.value;
 
   if (!token) {
-    redirect("/");
+    return (
+      <main className="mx-auto min-h-screen max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
+        <h1 className="mb-6 text-3xl font-semibold text-zinc-50">Dashboard</h1>
+        <Dashboard initialUser={null} />
+      </main>
+    );
   }
 
-  const payload = verifyToken(token);
-  if (!payload) {
-    redirect("/");
-  }
-
-  const hasAccess = await hasActiveSubscription(payload.email);
-  if (!hasAccess) {
-    redirect("/");
-  }
-
-  const latestBackup = await getLatestBackupForEmail(payload.email);
-  const requestHeaders = await headers();
-  const appUrl = detectBaseUrl(
-    requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host"),
-    requestHeaders.get("x-forwarded-proto")
-  );
-  const cliToken = createCliToken(payload.email);
+  const session = verifySession(token);
+  const user = session ? await getUserById(session.userId) : null;
 
   return (
-    <Dashboard
-      email={payload.email}
-      appUrl={appUrl}
-      cliToken={cliToken}
-      latestBackup={latestBackup}
-    />
+    <main className="mx-auto min-h-screen max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
+      <h1 className="mb-6 text-3xl font-semibold text-zinc-50">Dashboard</h1>
+      <Dashboard
+        initialUser={
+          user
+            ? {
+                id: user.id,
+                email: user.email,
+                paid: user.paid,
+                paidAt: user.paidAt
+              }
+            : null
+        }
+      />
+    </main>
   );
 }

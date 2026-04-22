@@ -11,25 +11,25 @@ NICHE: backup-tools
 PRICE: $$5/mo/mo
 
 ARCHITECTURE SPEC:
-A Next.js web app with a CLI tool that encrypts and backs up ~/.claude/ configs to S3 weekly. Users install via npm, authenticate through the web dashboard, and can restore configs on new machines with a single command.
+A Next.js web app that provides a CLI tool for encrypted backup/restore of Claude Code configs to S3. Users install via curl script, authenticate through web dashboard, and get automatic weekly backups with one-click restore.
 
 PLANNED FILES:
-- pages/api/auth/callback.js
+- pages/api/auth/register.js
+- pages/api/auth/login.js
 - pages/api/backup/upload.js
-- pages/api/backup/download.js
-- pages/api/subscription/webhook.js
+- pages/api/backup/restore.js
+- pages/api/webhooks/lemonsqueezy.js
 - pages/dashboard.js
 - pages/index.js
-- cli/backup.js
-- cli/restore.js
-- cli/install.js
+- scripts/install.sh
+- cli/cc-backup.js
 - lib/encryption.js
 - lib/s3.js
 - lib/auth.js
 - components/Dashboard.js
-- components/PricingCard.js
+- components/BackupHistory.js
 
-DEPENDENCIES: next, tailwindcss, @aws-sdk/client-s3, crypto, commander, axios, jsonwebtoken, @lemonsqueezy/lemonsqueezy.js, node-cron, tar, chalk
+DEPENDENCIES: next, tailwindcss, aws-sdk, crypto, node-cron, jsonwebtoken, bcryptjs, prisma, @prisma/client, lemonsqueezy.js, commander
 
 REQUIREMENTS:
 - Next.js 15 with App Router (app/ directory)
@@ -37,7 +37,7 @@ REQUIREMENTS:
 - Tailwind CSS v4
 - shadcn/ui components (npx shadcn@latest init, then add needed components)
 - Dark theme ONLY — background #0d1117, no light mode
-- Lemon Squeezy checkout overlay for payments
+- Stripe Payment Link for payments (hosted checkout — use the URL directly as the Buy button href)
 - Landing page that converts: hero, problem, solution, pricing, FAQ
 - The actual tool/feature behind a paywall (cookie-based access after purchase)
 - Mobile responsive
@@ -57,9 +57,13 @@ REQUIREMENTS:
   to package.json dependencies and re-run npm install + npm run build until it passes.
 
 ENVIRONMENT VARIABLES (create .env.example):
-- NEXT_PUBLIC_LEMON_SQUEEZY_STORE_ID
-- NEXT_PUBLIC_LEMON_SQUEEZY_PRODUCT_ID
-- LEMON_SQUEEZY_WEBHOOK_SECRET
+- NEXT_PUBLIC_STRIPE_PAYMENT_LINK  (full URL, e.g. https://buy.stripe.com/test_XXX)
+- NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY  (pk_test_... or pk_live_...)
+- STRIPE_WEBHOOK_SECRET  (set when webhook is wired)
+
+BUY BUTTON RULE: the Buy button's href MUST be `process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK`
+used as-is — do NOT construct URLs from a product ID, do NOT prepend any base URL,
+do NOT wrap it in an embed iframe. The link opens Stripe's hosted checkout directly.
 
 After creating all files:
 1. Run: npm install

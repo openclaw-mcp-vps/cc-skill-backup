@@ -1,60 +1,50 @@
+import { randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-
-import { authenticateFromHeaders } from "@/lib/auth";
-import { saveHostedBackup } from "@/lib/backup-store";
+import { getAuthenticatedUser, hasAccessCookie } from "@/lib/auth";
+import { putBackupObject } from "@/lib/s3";
+import { addBackupRecord } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
-function machineNameFromHeaders(request: NextRequest) {
-  return (
-    request.headers.get("x-machine-name") ??
-    request.headers.get("x-forwarded-host") ??
-    "unknown-machine"
-  );
-}
-
 export async function POST(request: NextRequest) {
-  const identity = await authenticateFromHeaders(request.headers);
-  if (!identity) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const user = await getAuthenticatedUser(request);
+  const hasBearer = Boolean(request.headers.get("authorization")?.startsWith("Bearer "));
+
+  if (!user) {
+    return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   }
 
-  let payload: Buffer;
+  if (!user.paid || (!hasBearer && !hasAccessCookie(request))) {
+    return NextResponse.json({ error: "Paid access required." }, { status: 402 });
+  }
 
-  const contentType = request.headers.get("content-type") ?? "";
+  try {
+    const body = (await request.json()) as {
+      encryptedBackup?: string;
+      checksum?: string;
+    };
 
-  if (contentType.includes("application/json")) {
-    const body = (await request.json().catch(() => null)) as
-      | { encryptedPayloadBase64?: string }
-      | null;
-
-    if (!body?.encryptedPayloadBase64) {
-      return NextResponse.json(
-        { error: "Missing encryptedPayloadBase64 in request body." },
-        { status: 400 }
-      );
+    if (!body.encryptedBackup || typeof body.encryptedBackup !== "string") {
+      return NextResponse.json({ error: "encryptedBackup is required." }, { status: 400 });
     }
 
-    payload = Buffer.from(body.encryptedPayloadBase64, "base64");
-  } else {
-    const arrayBuffer = await request.arrayBuffer();
-    payload = Buffer.from(arrayBuffer);
+    const storageKey = `${user.id}/${Date.now()}-${randomBytes(6).toString("hex")}.json`;
+
+    await putBackupObject(storageKey, body.encryptedBackup);
+
+    const record = await addBackupRecord({
+      userId: user.id,
+      storageKey,
+      sizeBytes: Buffer.byteLength(body.encryptedBackup, "utf8"),
+      checksum: body.checksum
+    });
+
+    return NextResponse.json({
+      ok: true,
+      backupId: record.id,
+      createdAt: record.createdAt
+    });
+  } catch {
+    return NextResponse.json({ error: "Backup upload failed." }, { status: 500 });
   }
-
-  if (payload.length === 0) {
-    return NextResponse.json({ error: "Empty backup payload." }, { status: 400 });
-  }
-
-  const record = await saveHostedBackup({
-    email: identity.email,
-    payload,
-    machineName: machineNameFromHeaders(request)
-  });
-
-  return NextResponse.json({
-    backupId: record.id,
-    createdAt: record.createdAt,
-    sizeBytes: record.sizeBytes,
-    checksumSha256: record.checksumSha256
-  });
 }

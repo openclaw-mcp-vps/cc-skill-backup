@@ -1,55 +1,44 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
 
-const MAGIC_HEADER = Buffer.from("CCSB01", "utf8");
-const SALT_LENGTH = 16;
-const IV_LENGTH = 12;
-const AUTH_TAG_LENGTH = 16;
+export type EncryptedBlob = {
+  ciphertext: string;
+  iv: string;
+  authTag: string;
+  salt: string;
+  algorithm: "aes-256-gcm";
+};
 
-function deriveKey(passphrase: string, salt: Buffer) {
+function deriveKey(passphrase: string, salt: Buffer): Buffer {
   return scryptSync(passphrase, salt, 32);
 }
 
-export function encryptBuffer(payload: Buffer, passphrase: string): Buffer {
-  if (!passphrase || passphrase.length < 12) {
-    throw new Error("Encryption key must be at least 12 characters.");
-  }
-
-  const salt = randomBytes(SALT_LENGTH);
-  const iv = randomBytes(IV_LENGTH);
+export function encryptText(content: string, passphrase: string): EncryptedBlob {
+  const salt = randomBytes(16);
+  const iv = randomBytes(12);
   const key = deriveKey(passphrase, salt);
-
   const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const ciphertext = Buffer.concat([cipher.update(payload), cipher.final()]);
+
+  const encrypted = Buffer.concat([cipher.update(content, "utf8"), cipher.final()]);
   const authTag = cipher.getAuthTag();
 
-  return Buffer.concat([MAGIC_HEADER, salt, iv, authTag, ciphertext]);
+  return {
+    ciphertext: encrypted.toString("base64"),
+    iv: iv.toString("base64"),
+    authTag: authTag.toString("base64"),
+    salt: salt.toString("base64"),
+    algorithm: "aes-256-gcm"
+  };
 }
 
-export function decryptBuffer(payload: Buffer, passphrase: string): Buffer {
-  if (payload.length < MAGIC_HEADER.length + SALT_LENGTH + IV_LENGTH + AUTH_TAG_LENGTH) {
-    throw new Error("Backup payload is not valid.");
-  }
+export function decryptText(blob: EncryptedBlob, passphrase: string): string {
+  const key = deriveKey(passphrase, Buffer.from(blob.salt, "base64"));
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(blob.iv, "base64"));
+  decipher.setAuthTag(Buffer.from(blob.authTag, "base64"));
 
-  const offsetMagic = MAGIC_HEADER.length;
-  const header = payload.subarray(0, offsetMagic);
+  const decrypted = Buffer.concat([
+    decipher.update(Buffer.from(blob.ciphertext, "base64")),
+    decipher.final()
+  ]);
 
-  if (!header.equals(MAGIC_HEADER)) {
-    throw new Error("Unexpected backup format.");
-  }
-
-  const saltStart = offsetMagic;
-  const saltEnd = saltStart + SALT_LENGTH;
-  const ivEnd = saltEnd + IV_LENGTH;
-  const tagEnd = ivEnd + AUTH_TAG_LENGTH;
-
-  const salt = payload.subarray(saltStart, saltEnd);
-  const iv = payload.subarray(saltEnd, ivEnd);
-  const authTag = payload.subarray(ivEnd, tagEnd);
-  const encrypted = payload.subarray(tagEnd);
-
-  const key = deriveKey(passphrase, salt);
-  const decipher = createDecipheriv("aes-256-gcm", key, iv);
-  decipher.setAuthTag(authTag);
-
-  return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  return decrypted.toString("utf8");
 }

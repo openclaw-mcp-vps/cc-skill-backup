@@ -1,23 +1,36 @@
-export type SubscriptionStatus = "active" | "inactive";
-
-export interface SubscriptionRecord {
-  email: string;
-  status: SubscriptionStatus;
-  lemonCustomerId?: string;
-  lemonSubscriptionId?: string;
-  updatedAt: string;
-}
-
-export interface BackupRecord {
+export type UserRecord = {
   id: string;
   email: string;
-  machineName: string;
-  provider: "hosted" | "s3";
+  passwordHash: string;
+  paid: boolean;
+  paidAt?: string;
   createdAt: string;
+  updatedAt: string;
+};
+
+export type BackupRecord = {
+  id: string;
+  userId: string;
+  storageKey: string;
   sizeBytes: number;
-  checksumSha256: string;
-  storagePath?: string;
-  s3Bucket?: string;
-  s3Key?: string;
-  s3Region?: string;
-}
+  checksum?: string;
+  createdAt: string;
+};
+
+export type PurchaseRecord = {
+  email: string;
+  paidAt: string;
+  source: "stripe" | "lemonsqueezy";
+};
+
+export type AppState = {
+  users: UserRecord[];
+  backups: BackupRecord[];
+  purchases: PurchaseRecord[];
+};
+
+export type SessionPayload = {
+  userId: string;
+  email: string;
+  paid: boolean;
+};

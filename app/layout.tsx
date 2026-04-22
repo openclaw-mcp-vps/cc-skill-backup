@@ -1,35 +1,49 @@
 import type { Metadata } from "next";
-import Script from "next/script";
+import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
+import "./globals.css";
 
-import "@/app/globals.css";
+const spaceGrotesk = Space_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-space-grotesk"
+});
 
-const fallbackBase = "https://cc-skill-backup.com";
+const ibmPlexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-ibm-plex-mono"
+});
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? fallbackBase),
-  title: "CC Skill Backup — Encrypted Weekly Claude Code Backups",
+  title: "CC Skill Backup — Encrypted weekly Claude Code backup",
   description:
-    "Auto-backup your ~/.claude config to encrypted S3 every week. Restore hooks, skills, plugins, and commands on any machine in seconds.",
-  keywords: [
-    "Claude Code backup",
-    "Claude skills backup",
-    "encrypted config backup",
-    "S3 backup",
-    "developer tooling"
-  ],
+    "Auto-backup your ~/.claude hooks, skills, plugins, and commands to encrypted S3 weekly. Restore a full Claude Code setup in seconds on any machine.",
+  metadataBase: new URL("https://cc-skill-backup.vercel.app"),
   openGraph: {
     title: "CC Skill Backup",
     description:
-      "Encrypted weekly backups for ~/.claude so your hooks, skills, plugins, and commands survive every machine migration.",
-    url: "/",
+      "Encrypted weekly Claude Code backups to S3 with one-click restore on any new machine.",
+    url: "https://cc-skill-backup.vercel.app",
     siteName: "CC Skill Backup",
+    images: [
+      {
+        url: "/og-image.svg",
+        width: 1200,
+        height: 630,
+        alt: "CC Skill Backup dashboard preview"
+      }
+    ],
     type: "website"
   },
   twitter: {
     card: "summary_large_image",
     title: "CC Skill Backup",
     description:
-      "Keep your Claude Code setup safe with encrypted weekly backups and one-command restore."
+      "Auto-backup your ~/.claude config weekly and restore in seconds.",
+    images: ["/og-image.svg"]
+  },
+  robots: {
+    index: true,
+    follow: true
   }
 };
 
@@ -40,14 +54,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className="bg-[#0d1117] text-zinc-100 antialiased">
-        <Script
-          id="lemonsqueezy-script"
-          strategy="afterInteractive"
-          src="https://app.lemonsqueezy.com/js/lemon.js"
-        />
-        {children}
-      </body>
+      <body className={`${spaceGrotesk.variable} ${ibmPlexMono.variable} antialiased`}>{children}</body>
     </html>
   );
 }
